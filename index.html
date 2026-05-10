@@ -299,6 +299,30 @@
       transform:translateY(-3px);
     }
 
+    .form-message{
+      display:none;
+      margin-top:18px;
+      padding:14px 16px;
+      border-radius:12px;
+      font-size:0.95rem;
+      font-weight:500;
+      line-height:1.5;
+    }
+
+    .form-message.success{
+      display:block;
+      background:#e8f7ef;
+      color:#166534;
+      border:1px solid #b7ebc8;
+    }
+
+    .form-message.error{
+      display:block;
+      background:#fff1f1;
+      color:#b42318;
+      border:1px solid #ffc9c9;
+    }
+
     /* CLIENTS */
     .clients{
       background:#fff;
@@ -529,40 +553,26 @@
 
     <div class="enquiry-wrapper">
 
-      <!-- 
-        IMPORTANT:
-        For GitHub Pages only frontend works.
-        To send emails with increment inquiry numbers,
-        use:
-        1. FormSubmit
-        2. EmailJS
-        3. Netlify Forms
-        4. Firebase Functions
-        5. Node.js backend
-        
-        Backend example inquiry number:
-        IN-10001
-        IN-10002
-      -->
-
       <form id="enquiryForm">
 
         <div class="input-group">
-          <input type="text" placeholder="Your Name" required>
-          <input type="tel" placeholder="Phone Number" required>
+          <input type="text" name="name" placeholder="Your Name" required>
+          <input type="tel" name="phone" placeholder="Phone Number" required>
         </div>
 
-        <input type="email" placeholder="Email Address" required>
+        <input type="email" name="email" placeholder="Email Address" required>
 
-        <textarea placeholder="Describe Issue / Requirement"></textarea>
+        <textarea name="message" placeholder="Describe Issue / Requirement"></textarea>
 
-        <input type="file">
+        <input type="file" name="image" accept="image/*">
 
         <button type="submit" class="submit-btn">
           Submit Enquiry
         </button>
 
       </form>
+
+      <div id="formMessage" class="form-message" role="status" aria-live="polite"></div>
 
     </div>
 
@@ -687,15 +697,93 @@
     }, 3000);
 
 
-    // Form Submit Demo
-    document.getElementById("enquiryForm")
-    .addEventListener("submit", function(e){
+    // Form Submit: Google Sheet + Google Drive image upload
+    const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbx_cQj6k5kLav1L-ywJ_olrDmozSx41o3L-H6kPdD3ZOVdaL5sJTE86kK1PUG6sc316aA/exec";
+    const enquiryForm = document.getElementById("enquiryForm");
+    const submitButton = enquiryForm.querySelector(".submit-btn");
+    const formMessage = document.getElementById("formMessage");
 
+    function showFormMessage(message,type){
+      formMessage.innerText = message;
+      formMessage.className = "form-message " + type;
+    }
+
+    function clearFormMessage(){
+      formMessage.innerText = "";
+      formMessage.className = "form-message";
+    }
+
+    function readFileAsBase64(file){
+      return new Promise((resolve,reject) => {
+        if(!file){
+          resolve(null);
+          return;
+        }
+
+        const reader = new FileReader();
+
+        reader.onload = () => {
+          const result = String(reader.result);
+          const base64 = result.includes(",") ? result.split(",")[1] : result;
+
+          resolve({
+            name:file.name,
+            type:file.type || "application/octet-stream",
+            data:base64
+          });
+        };
+
+        reader.onerror = () => reject(new Error("Unable to read selected image."));
+        reader.readAsDataURL(file);
+      });
+    }
+
+    enquiryForm.addEventListener("submit", async function(e){
       e.preventDefault();
+      clearFormMessage();
 
-      alert(
-        "Enquiry submitted successfully! \n\nBackend integration required for email and inquiry number generation."
-      );
+      if(!GOOGLE_SCRIPT_URL || GOOGLE_SCRIPT_URL.includes("PASTE_YOUR")){
+        showFormMessage("Please add your Google Apps Script Web App URL in GOOGLE_SCRIPT_URL.","error");
+        return;
+      }
+
+      submitButton.disabled = true;
+      submitButton.innerText = "Submitting...";
+
+      try{
+        const formData = new FormData(enquiryForm);
+        const imageFile = formData.get("image");
+
+        const payload = {
+          name:formData.get("name"),
+          phone:formData.get("phone"),
+          email:formData.get("email"),
+          message:formData.get("message"),
+          image:await readFileAsBase64(imageFile && imageFile.size ? imageFile : null)
+        };
+
+        const response = await fetch(GOOGLE_SCRIPT_URL,{
+          method:"POST",
+          headers:{
+            "Content-Type":"text/plain;charset=utf-8"
+          },
+          body:JSON.stringify(payload)
+        });
+
+        const result = await response.json();
+
+        if(!result.success){
+          throw new Error(result.message || "Submission failed.");
+        }
+
+        showFormMessage("Enquiry submitted successfully! Inquiry No: " + result.inquiryNumber,"success");
+        enquiryForm.reset();
+      }catch(error){
+        showFormMessage("Unable to submit enquiry. " + error.message,"error");
+      }finally{
+        submitButton.disabled = false;
+        submitButton.innerText = "Submit Enquiry";
+      }
 
     });
 
